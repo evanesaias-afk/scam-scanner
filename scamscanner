@@ -1,17 +1,25 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes, 
-  EmbedBuilder 
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  EmbedBuilder
 } = require('discord.js');
 
-// 🔧 CONFIG — FILL THESE IN
-const TOKEN = 'YOUR_BOT_TOKEN';
-const CLIENT_ID = 'YOUR_CLIENT_ID';
-const GUILD_ID = 'YOUR_SERVER_ID';
-const SCAM_CHANNEL_ID = 'CHANNEL_ID_FOR_SCAMMERS';
+// ===============================
+// 🔧 CONFIG FROM RENDER ENVIRONMENT
+// ===============================
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+const SCAM_CHANNEL_ID = process.env.SCAM_CHANNEL_ID;
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SCAM_CHANNEL_ID) {
+  console.error('Missing environment variables.');
+  console.error('Required: DISCORD_TOKEN, CLIENT_ID, GUILD_ID, SCAM_CHANNEL_ID');
+  process.exit(1);
+}
 
 // ===============================
 // 📌 REGISTER SLASH COMMAND
@@ -21,29 +29,36 @@ const commands = [
     .setName('scammer')
     .setDescription('Report a scammer')
     .addUserOption(option =>
-      option.setName('user')
+      option
+        .setName('user')
         .setDescription('The scammer')
-        .setRequired(true))
+        .setRequired(true)
+    )
     .addStringOption(option =>
-      option.setName('reason')
+      option
+        .setName('reason')
         .setDescription('Reason for report')
-        .setRequired(true))
-].map(cmd => cmd.toJSON());
+        .setRequired(true)
+    )
+].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async () => {
+async function registerCommands() {
   try {
     console.log('Deploying slash command...');
+
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
+
     console.log('Slash command registered.');
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error('Failed to register slash command:');
+    console.error(error);
   }
-})();
+}
 
 // ===============================
 // 🤖 CREATE BOT
@@ -62,33 +77,39 @@ client.once('ready', () => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'scammer') {
-    const user = interaction.options.getUser('user');
-    const reason = interaction.options.getString('reason');
+  if (interaction.commandName !== 'scammer') return;
 
-    const channel = interaction.guild.channels.cache.get(SCAM_CHANNEL_ID);
+  const user = interaction.options.getUser('user');
+  const reason = interaction.options.getString('reason');
 
-    if (!channel) {
-      return interaction.reply({
-        content: 'Scam channel not found.',
-        ephemeral: true
-      });
-    }
+  const channel = await interaction.guild.channels.fetch(SCAM_CHANNEL_ID).catch(() => null);
 
-    const embed = new EmbedBuilder()
-      .setColor(0x8B0000)
-      .setTitle('🚨 Scammer Alert')
-      .setDescription(`User: ${user.tag} (${user.id})\nReason: ${reason}`)
-      .setImage('https://cdn.discordapp.com/attachments/1404360337079271504/1404617327151943812/scammer.gif')
-      .setTimestamp();
-
-    await channel.send({ embeds: [embed] });
-
-    await interaction.reply({
-      content: 'Scammer reported.',
+  if (!channel) {
+    return interaction.reply({
+      content: 'Scam channel not found. Check SCAM_CHANNEL_ID.',
       ephemeral: true
     });
   }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle('🚨 Scammer Alert')
+    .setDescription(`User: ${user.tag} (${user.id})\nReason: ${reason}`)
+    .setImage('https://cdn.discordapp.com/attachments/1404360337079271504/1404617327151943812/scammer.gif')
+    .setTimestamp();
+
+  await channel.send({ embeds: [embed] });
+
+  await interaction.reply({
+    content: 'Scammer reported.',
+    ephemeral: true
+  });
 });
 
-client.login(TOKEN);
+// ===============================
+// 🚀 START BOT
+// ===============================
+(async () => {
+  await registerCommands();
+  await client.login(TOKEN);
+})();
