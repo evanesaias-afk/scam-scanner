@@ -8,21 +8,24 @@ const {
 } = require('discord.js');
 
 // ===============================
-// 🔧 CONFIG FROM RENDER ENVIRONMENT
+// CONFIG FROM RENDER ENVIRONMENT
 // ===============================
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const SCAM_CHANNEL_ID = process.env.SCAM_CHANNEL_ID;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SCAM_CHANNEL_ID) {
+// Your scammer role ID
+const SCAM_ROLE_ID = '1404359573401370705';
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SCAM_CHANNEL_ID || !SCAM_ROLE_ID) {
   console.error('Missing environment variables.');
   console.error('Required: DISCORD_TOKEN, CLIENT_ID, GUILD_ID, SCAM_CHANNEL_ID');
   process.exit(1);
 }
 
 // ===============================
-// 📌 REGISTER SLASH COMMAND
+// REGISTER SLASH COMMAND
 // ===============================
 const commands = [
   new SlashCommandBuilder()
@@ -61,10 +64,13 @@ async function registerCommands() {
 }
 
 // ===============================
-// 🤖 CREATE BOT
+// CREATE BOT
 // ===============================
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
 client.once('ready', () => {
@@ -72,17 +78,17 @@ client.once('ready', () => {
 });
 
 // ===============================
-// ⚡ COMMAND HANDLER
+// COMMAND HANDLER
 // ===============================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
-
   if (interaction.commandName !== 'scammer') return;
 
   const user = interaction.options.getUser('user');
   const reason = interaction.options.getString('reason');
+  const guild = interaction.guild;
 
-  const channel = await interaction.guild.channels.fetch(SCAM_CHANNEL_ID).catch(() => null);
+  const channel = await guild.channels.fetch(SCAM_CHANNEL_ID).catch(() => null);
 
   if (!channel) {
     return interaction.reply({
@@ -91,23 +97,70 @@ client.on('interactionCreate', async interaction => {
     });
   }
 
+  const member = await guild.members.fetch(user.id).catch(() => null);
+
+  if (!member) {
+    return interaction.reply({
+      content: 'User not found in this server.',
+      ephemeral: true
+    });
+  }
+
+  try {
+    await member.roles.add(SCAM_ROLE_ID);
+  } catch (error) {
+    console.error('Failed to give role:');
+    console.error(error);
+
+    return interaction.reply({
+      content: 'I could not give the role. Make sure my bot role is above the scammer role and I have Manage Roles permission.',
+      ephemeral: true
+    });
+  }
+
+  const alertMessage =
+    `🚨 Scammer Alert\n\n` +
+    `User: ${user.tag} (${user.id})\n` +
+    `Mention: <@${user.id}>\n` +
+    `Reason: ${reason}`;
+
   const embed = new EmbedBuilder()
     .setColor(0x8B0000)
     .setTitle('🚨 Scammer Alert')
-    .setDescription(`User: ${user.tag} (${user.id})\nReason: ${reason}`)
+    .setDescription(
+      `User: ${user.tag} (${user.id})\n` +
+      `Mention: <@${user.id}>\n` +
+      `Reason: ${reason}`
+    )
     .setImage('https://cdn.discordapp.com/attachments/1404360337079271504/1404617327151943812/scammer.gif')
     .setTimestamp();
 
-  await channel.send({ embeds: [embed] });
+  await channel.send({
+    content: `<@${user.id}> has been marked as a scammer.`,
+    embeds: [embed]
+  });
+
+  let dmStatus = 'DM sent.';
+
+  try {
+    await user.send({
+      content: alertMessage,
+      embeds: [embed]
+    });
+  } catch (error) {
+    console.error('Failed to send DM:');
+    console.error(error);
+    dmStatus = 'DM failed. Their DMs might be closed.';
+  }
 
   await interaction.reply({
-    content: 'Scammer reported.',
+    content: `Scammer reported. Role added. ${dmStatus}`,
     ephemeral: true
   });
 });
 
 // ===============================
-// 🚀 START BOT
+// START BOT
 // ===============================
 (async () => {
   await registerCommands();
