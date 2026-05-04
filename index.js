@@ -20,7 +20,6 @@ const SCAM_ROLE_ID = '1404359573401370705';
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID || !SCAM_CHANNEL_ID || !SCAM_ROLE_ID) {
   console.error('Missing environment variables.');
-  console.error('Required: DISCORD_TOKEN, CLIENT_ID, GUILD_ID, SCAM_CHANNEL_ID');
   process.exit(1);
 }
 
@@ -32,14 +31,12 @@ const commands = [
     .setName('scammer')
     .setDescription('Report a scammer')
     .addUserOption(option =>
-      option
-        .setName('user')
+      option.setName('user')
         .setDescription('The scammer')
         .setRequired(true)
     )
     .addStringOption(option =>
-      option
-        .setName('reason')
+      option.setName('reason')
         .setDescription('Reason for report')
         .setRequired(true)
     )
@@ -50,15 +47,12 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 async function registerCommands() {
   try {
     console.log('Deploying slash command...');
-
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-
     console.log('Slash command registered.');
   } catch (error) {
-    console.error('Failed to register slash command:');
     console.error(error);
   }
 }
@@ -92,7 +86,7 @@ client.on('interactionCreate', async interaction => {
 
   if (!channel) {
     return interaction.reply({
-      content: 'Scam channel not found. Check SCAM_CHANNEL_ID.',
+      content: 'Scam channel not found.',
       ephemeral: true
     });
   }
@@ -106,26 +100,33 @@ client.on('interactionCreate', async interaction => {
     });
   }
 
-  try {
-    await member.roles.add(SCAM_ROLE_ID);
-  } catch (error) {
-    console.error('Failed to give role:');
-    console.error(error);
+  // ===============================
+  // AUTO ROLE ASSIGN
+  // ===============================
+  const role = guild.roles.cache.get(SCAM_ROLE_ID);
 
+  if (!role) {
     return interaction.reply({
-      content: 'I could not give the role. Make sure my bot role is above the scammer role and I have Manage Roles permission.',
+      content: 'Scammer role not found.',
       ephemeral: true
     });
   }
 
-  const alertMessage =
-    `🚨 Scammer Alert\n\n` +
-    `User: ${user.tag} (${user.id})\n` +
-    `Mention: <@${user.id}>\n` +
-    `Reason: ${reason}`;
+  try {
+    await member.roles.add(role);
+  } catch (error) {
+    console.error('Role assign failed:', error);
+    return interaction.reply({
+      content: 'Could not assign role. Check role hierarchy & permissions.',
+      ephemeral: true
+    });
+  }
 
+  // ===============================
+  // CHANNEL EMBED (BLUE)
+  // ===============================
   const embed = new EmbedBuilder()
-    .setColor(0x8B0000)
+    .setColor(0x0099ff)
     .setTitle('🚨 Scammer Alert')
     .setDescription(
       `User: ${user.tag} (${user.id})\n` +
@@ -140,19 +141,29 @@ client.on('interactionCreate', async interaction => {
     embeds: [embed]
   });
 
+  // ===============================
+  // DM EMBED (BLUE)
+  // ===============================
   let dmStatus = 'DM sent.';
 
   try {
+    const dmEmbed = new EmbedBuilder()
+      .setColor(0x0099ff)
+      .setTitle('⚠️ You have been reported')
+      .setDescription(`Reason: ${reason}`)
+      .setTimestamp();
+
     await user.send({
-      content: alertMessage,
-      embeds: [embed]
+      embeds: [dmEmbed]
     });
   } catch (error) {
-    console.error('Failed to send DM:');
-    console.error(error);
-    dmStatus = 'DM failed. Their DMs might be closed.';
+    console.error('DM failed:', error);
+    dmStatus = 'DM failed (user likely has DMs closed).';
   }
 
+  // ===============================
+  // FINAL RESPONSE
+  // ===============================
   await interaction.reply({
     content: `Scammer reported. Role added. ${dmStatus}`,
     ephemeral: true
